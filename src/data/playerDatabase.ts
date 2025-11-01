@@ -9,6 +9,7 @@ export interface PlayerStats {
   xSLG: number;
   HRperPA: number;
   RBI: number;
+  OPS: number;
   BarrelPerPA: number;
   HardHitPct: number;
   EV50: number;
@@ -71,7 +72,7 @@ export const STAT_LABELS: Record<keyof Omit<PlayerStats, 'age'>, string> = {
   RBI: 'RBI',
   BarrelPerPA: 'Barrel%',
   HardHitPct: 'Hard Hit%',
-  EV50: 'EV50',
+  EV50: 'avgEV',
   maxEV: 'maxEV',
   BBpct: 'BB%',
   Kpct: 'K%',
@@ -138,65 +139,102 @@ function generateStatPeriods(
 }
 
 // All available players (can be valued or used as comps if they have contracts)
-import { fetchCsv, getField, getString } from './csvLoader';
+import { fetchMultipleCsvs, mergeCsvRowsByName, getField, getString, normalizePlayerName } from './csvLoader';
 
-const CSV_URL = '/Full_Data.csv';
+const FANGRAPHS_URL = '/fangraphs.csv';
+const SPOTRAC_URL = '/spotrac.csv';
+const STATSCAST_URL = '/statscast.csv';
 
 let cachedPlayers: Player[] | null = null;
 
 export async function loadPlayersFromCsv(): Promise<Player[]> {
   if (cachedPlayers) return cachedPlayers;
-  const rows = await fetchCsv(CSV_URL);
+  
+  // Fetch all three CSVs in parallel
+  const [fangraphsRows, spotracRows, statscastRows] = await fetchMultipleCsvs([
+    FANGRAPHS_URL,
+    SPOTRAC_URL,
+    STATSCAST_URL,
+  ]);
+  
+  // Merge rows by player name (Fangraphs is base, other CSVs merged in)
+  const rows = mergeCsvRowsByName(fangraphsRows, spotracRows, statscastRows);
 
-  // Group all seasons per player
+  // Group all seasons per player by normalized name
   const byId: Map<string, any[]> = new Map();
   const names: Map<string, string> = new Map();
 
   for (const row of rows) {
-    const name = getString(row, ['player_display', 'sc_Name', 'fg_player']);
+    const name = getString(row, ['Name']);
     if (!name) continue;
-    const normId = getString(row, ['player_norm']).replace(/\s+/g, '-');
+    const normId = normalizePlayerName(name);
     if (!byId.has(normId)) byId.set(normId, []);
     byId.get(normId)!.push(row);
     names.set(normId, name);
   }
 
+  // Helper function to normalize team abbreviation from CSV data
+  const normalizeTeamFromCsv = (teamValue: string): string => {
+    if (!teamValue || typeof teamValue !== 'string') return '';
+    const trimmed = teamValue.trim();
+    if (trimmed === '' || trimmed === '—' || trimmed === '-') return '';
+    
+    // Convert to uppercase and handle duplicates like "DET DET"
+    const upper = trimmed.toUpperCase();
+    const parts = upper.split(/\s+/);
+    const teamAbbr = parts[0];
+    
+    // Return first valid 2-3 letter abbreviation, or empty string
+    if (/^[A-Z]{2,3}$/.test(teamAbbr)) {
+      return teamAbbr;
+    }
+    
+    // Try second part if first doesn't match
+    if (parts.length > 1 && /^[A-Z]{2,3}$/.test(parts[1])) {
+      return parts[1];
+    }
+    
+    return trimmed; // Return original if can't normalize
+  };
+
   const toSeasonObj = (r: any) => {
-    const season = getField(r, ['season'], 0);
-    const pa = getField(r, ['fg_PA']);
-    const hr = getField(r, ['fg_HR']);
+    const season = getField(r, ['Season', 'year'], 0);
+    const pa = getField(r, ['fg_PA', 'pa'], 0);
+    const hr = getField(r, ['fg_HR', 'home_run'], 0);
     const hrPerPa = pa > 0 ? (hr / pa) * 100 : 0;
+    const rawTeam = getString(r, ['fg_Team'], '');
     return {
       season: Number(season),
-      wRCplus: getField(r, ['fg_wRC+']),
-      xwOBA: getField(r, ['fg_xwOBA', 'sc_X_woba', 'sc_X_est_woba'], 0),
-      xSLG: getField(r, ['fg_xSLG', 'sc_X_slg', 'sc_X_est_slg'], 0),
+      wRCplus: getField(r, ['fg_wRC+'], 0),
+      xwOBA: getField(r, ['fg_xwOBA'], 0),
+      xSLG: getField(r, ['fg_xSLG'], 0),
       HRperPA: Number(hrPerPa.toFixed(2)),
       HR: hr,
       RBI: getField(r, ['fg_RBI'], 0),
-      BarrelPerPA: getField(r, ['sc_EV_brl_percent'], 0),
+      OPS: getField(r, ['fg_OPS'], 0),
+      BarrelPerPA: getField(r, ['fg_Barrel%', 'barrel_batted_rate'], 0),
       HardHitPct: getField(r, ['fg_HardHit%', 'fg_HardHit%+'], 0),
-      EV50: getField(r, ['sc_EV_ev50', 'sc_EV_avg_hit_speed', 'fg_EV50', 'fg_EV'], 0),
-      maxEV: getField(r, ['fg_maxEV', 'sc_maxEV', 'MaxEV', 'max_exit_velo', 'sc_EV_max'], 0),
-      BBpct: getField(r, ['fg_BB%'], 0),
-      Kpct: getField(r, ['fg_K%'], 0),
+      EV50: getField(r, ['fg_EV', 'exit_velocity_avg'], 0),
+      maxEV: getField(r, ['fg_maxEV'], 0),
+      BBpct: getField(r, ['fg_BB%', 'bb_percent'], 0),
+      Kpct: getField(r, ['fg_K%', 'k_percent'], 0),
       ContactPct: getField(r, ['fg_Contact%'], 0),
       WAR: getField(r, ['fg_WAR', 'fg_L-WAR'], 0),
       PA: pa,
-      age: getField(r, ['fg_Age'], 0),
-      fg_Def: getField(r, ['fg_Def', 'Def'], 0),
-      fg_BsR: getField(r, ['fg_BsR', 'BsR'], 0),
-      position: getString(r, ['sp_position', 'fg_Pos', 'fg_Pos '], 'OF'),
-      team: getString(r, ['fg_Team', 'fg_Team\n', 'fg_Team ', 'fg_Team,']),
-      signedYear: getField(r, ['sp_Start']),
-      aavRaw: getField(r, ['sp_aav', 'sp_AAV', 'AAV']),
-      yrs: getField(r, ['sp_Yrs', 'sp_YRS', 'sp_Years']),
+      age: getField(r, ['fg_Age', 'player_age'], 0),
+      fg_Def: getField(r, ['fg_Def'], 0),
+      fg_BsR: getField(r, ['fg_BsR'], 0),
+      position: getString(r, ['fg_Pos', 'Pos', 'PosGroup'], 'OF'),
+      team: normalizeTeamFromCsv(rawTeam), // Normalize team at load time
+      signedYear: getField(r, ['Start'], 0),
+      aavRaw: getField(r, ['AAV'], 0),
+      yrs: getField(r, ['Yrs'], 0),
     };
   };
 
   const aggregate = (seasons: any[]): PlayerStats => {
     if (seasons.length === 0) {
-      return { wRCplus: 0, xwOBA: 0, xSLG: 0, HRperPA: 0, BarrelPerPA: 0, HardHitPct: 0, EV50: 0, maxEV: 0, BBpct: 0, Kpct: 0, ContactPct: 0, WAR: 0, PA: 0, age: 0, fg_Def: 0, fg_BsR: 0 };
+      return { wRCplus: 0, xwOBA: 0, xSLG: 0, HRperPA: 0, RBI: 0, OPS: 0, BarrelPerPA: 0, HardHitPct: 0, EV50: 0, maxEV: 0, BBpct: 0, Kpct: 0, ContactPct: 0, WAR: 0, PA: 0, age: 0, fg_Def: 0, fg_BsR: 0 };
     }
     const mean = (k: string, d = 6) => Number((seasons.reduce((s, r) => s + Number(r[k] || 0), 0) / seasons.length).toFixed(d));
     const sum = (k: string) => seasons.reduce((s, r) => s + Number(r[k] || 0), 0);
@@ -208,6 +246,7 @@ export async function loadPlayersFromCsv(): Promise<Player[]> {
       xSLG: mean('xSLG', 6),
       HRperPA: avgHR,
       RBI: mean('RBI', 1),
+      OPS: mean('OPS', 3),
       BarrelPerPA: mean('BarrelPerPA', 4),
       HardHitPct: mean('HardHitPct', 4),
       EV50: mean('EV50', 4),

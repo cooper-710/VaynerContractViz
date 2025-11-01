@@ -73,7 +73,7 @@ export function InteractiveChart({
   return (
     <ResponsiveContainer width="100%" height={height}>
       {type === 'bar' && (
-        <BarChart data={data}>
+        <BarChart data={data} margin={{ top: 10, right: 10, left: 50, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
           <XAxis 
             dataKey={xKey} 
@@ -89,6 +89,7 @@ export function InteractiveChart({
             style={{ fontSize: '12px' }}
             domain={yDomain}
             allowDecimals
+            width={45}
             tickFormatter={(v) => {
               const num = typeof v === 'number' ? v : Number(v);
               if (!Number.isFinite(num)) return String(v);
@@ -105,7 +106,7 @@ export function InteractiveChart({
         </BarChart>
       )}
       {type === 'line' && (
-        <LineChart data={data}>
+        <LineChart data={data} margin={{ top: 10, right: 10, left: 50, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
           <XAxis 
             dataKey={xKey} 
@@ -121,6 +122,7 @@ export function InteractiveChart({
             style={{ fontSize: '12px' }}
             domain={yDomain}
             allowDecimals
+            width={45}
             tickFormatter={(v) => {
               const num = typeof v === 'number' ? v : Number(v);
               if (!Number.isFinite(num)) return String(v);
@@ -137,7 +139,7 @@ export function InteractiveChart({
         </LineChart>
       )}
       {type === 'area' && (
-        <AreaChart data={data}>
+        <AreaChart data={data} margin={{ top: 10, right: 10, left: 50, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
           <XAxis 
             dataKey={xKey} 
@@ -153,6 +155,7 @@ export function InteractiveChart({
             style={{ fontSize: '12px' }}
             domain={yDomain}
             allowDecimals
+            width={45}
             tickFormatter={(v) => {
               const num = typeof v === 'number' ? v : Number(v);
               if (!Number.isFinite(num)) return String(v);

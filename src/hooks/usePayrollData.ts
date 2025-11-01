@@ -3,13 +3,13 @@ import { loadPayrollData, getTeamPayrollData, getAvailableTeams, type TeamPayrol
 
 const STORAGE_KEY = 'selectedTeamId';
 
-// Get initial team ID from localStorage or default to Mets
+// Get initial team ID from localStorage or default to Red Sox
 function getInitialTeamId(): string {
   if (typeof window !== 'undefined') {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) return stored;
   }
-  return 'NYM'; // Default to Mets
+  return 'BOS'; // Default to Boston Red Sox
 }
 
 export function usePayrollData() {

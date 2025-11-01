@@ -17,6 +17,7 @@ import { Projections } from './components/screens/Projections';
 import { OfferSheet } from './components/screens/OfferSheet';
 import { ShareExport } from './components/screens/ShareExport';
 import { Audit } from './components/screens/Audit';
+import { Mocap } from './components/screens/Mocap';
 import { cn } from './components/ui/utils';
 
 type Mode = 'narrative' | 'exploration';
@@ -25,8 +26,10 @@ type Screen =
   | 'player-stats'
   | 'player-comparisons'
   | 'estimated-value'
+  | 'team-fit'
   | 'contract-architecture'
   | 'contract-summary'
+  | 'mocap'
   | 'overview' 
   | 'builder' 
   | 'valuation' 
@@ -72,6 +75,7 @@ function AppContent() {
   const initialState = getInitialState();
   const [mode, setMode] = useState<Mode>(initialState.mode);
   const [currentScreen, setCurrentScreen] = useState<Screen>(initialState.currentScreen);
+  const [previousScreen, setPreviousScreen] = useState<Screen | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(initialState.sidebarOpen);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(initialState.selectedPlayerId);
   const [selectedCompIds, setSelectedCompIds] = useState<string[]>(initialState.selectedCompIds);
@@ -161,6 +165,7 @@ function AppContent() {
             setCurrentScreen('player-stats');
           }}
           onNavigateTo={(screen, player, comps) => {
+            setPreviousScreen(currentScreen);
             setSelectedPlayer(player);
             setSelectedComps(comps);
             setSelectedPlayerId(player?.id || null);
@@ -192,15 +197,24 @@ function AppContent() {
       return <EstimatedValue 
         player={selectedPlayer}
         comps={selectedComps}
-        onContinue={() => setCurrentScreen('contract-architecture')}
+        onContinue={() => setCurrentScreen('team-fit')}
         onBack={() => setCurrentScreen('player-comparisons')}
+      />;
+    }
+    
+    if (currentScreen === 'team-fit') {
+      return <TeamFit 
+        player={selectedPlayer}
+        comps={selectedComps}
+        onContinue={() => setCurrentScreen('contract-architecture')}
+        onBack={() => setCurrentScreen('estimated-value')}
       />;
     }
     
     if (currentScreen === 'contract-architecture') {
       return <ContractArchitecture 
         onContinue={() => setCurrentScreen('contract-summary')}
-        onBack={() => setCurrentScreen('estimated-value')}
+        onBack={() => setCurrentScreen('team-fit')}
       />;
     }
     
@@ -222,7 +236,23 @@ function AppContent() {
           }
         }}
         onBack={() => setCurrentScreen('contract-architecture')}
+        onNavigateTo={(screen, player, comps) => {
+          setPreviousScreen(currentScreen);
+          setSelectedPlayer(player);
+          setSelectedComps(comps);
+          setSelectedPlayerId(player?.id || null);
+          setSelectedCompIds(comps.map(c => c.id));
+          setCurrentScreen(screen as any);
+        }}
+        player={selectedPlayer}
+        comps={selectedComps}
       />;
+    }
+
+    if (currentScreen === 'mocap') {
+      const backToScreen = previousScreen === 'contract-summary' ? 'contract-summary' : 'intro';
+      const backLabel = previousScreen === 'contract-summary' ? 'Back to Summary' : 'Back to Intro';
+      return <Mocap onBack={() => setCurrentScreen(backToScreen)} player={selectedPlayer} backLabel={backLabel} />;
     }
   }
 
@@ -326,6 +356,7 @@ function AppContent() {
         {currentScreen === 'offer' && <OfferSheet />}
         {currentScreen === 'share' && <ShareExport />}
         {currentScreen === 'audit' && <Audit />}
+        {currentScreen === 'mocap' && <Mocap onBack={() => setCurrentScreen('intro')} player={selectedPlayer} backLabel="Back to Intro" />}
       </div>
     </div>
   );

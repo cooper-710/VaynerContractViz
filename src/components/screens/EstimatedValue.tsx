@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, ArrowLeft, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { SBButton } from '../boras/SBButton';
@@ -11,6 +11,8 @@ import { ChevronDown } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import type { Player, PlayerStats } from '../../data/playerDatabase';
+import { fetchMultipleCsvs } from '../../data/csvLoader';
+import { getString, getField, normalizePlayerName } from '../../data/csvLoader';
 
 interface EstimatedValueProps {
   player: Player | null;
@@ -21,85 +23,159 @@ interface EstimatedValueProps {
 
 
 
-// Mapping from config key to PlayerStats field name
-const STAT_KEY_MAP: Record<string, keyof import('../../data/playerDatabase').PlayerStats> = {
-  'fg_xwOBA': 'xwOBA',
-  'fg_PA': 'PA',
-  'sc_EV_brl_pa': 'BarrelPerPA',
-  'fg_xSLG': 'xSLG',
+// Mapping from config key to PlayerStats field name (or special marker)
+const STAT_KEY_MAP: Record<string, keyof import('../../data/playerDatabase').PlayerStats | 'HR'> = {
+  'fg_RBI': 'RBI',
+  'fg_HR': 'HR', // Special: extracted from HRperPA
+  'fg_OPS': 'OPS',
+  'fg_wRC+': 'wRCplus',
   'fg_BB%': 'BBpct',
   'fg_K%': 'Kpct',
-  'fg_Contact%': 'ContactPct',
+  'fg_PA': 'PA',
+  'fg_WAR': 'WAR',
+  'fg_xwOBA': 'xwOBA',
+  'fg_xSLG': 'xSLG',
+  'sc_EV_brl_pa': 'BarrelPerPA',
   'sc_EV_ev50': 'EV50',
   'fg_Def': 'fg_Def',
   'fg_BsR': 'fg_BsR',
-  'fg_maxEV': 'maxEV',
-  'fg_HardHit%': 'HardHitPct',
 };
 
 const STAT_CONFIG = {
-  fg_xwOBA: { label: 'xwOBA', higherBetter: true, weight: 0.28, decimals: 3, scale: 'decimal' as const },
-  fg_PA: { label: 'PA', higherBetter: true, weight: 0.14, decimals: 0, scale: 'raw' as const },
-  sc_EV_brl_pa: { label: 'Brls/PA', higherBetter: true, weight: 0.12, decimals: 1, scale: 'pct' as const },
-  fg_xSLG: { label: 'xSLG', higherBetter: true, weight: 0.10, decimals: 3, scale: 'decimal' as const },
-  'fg_BB%': { label: 'BB%', higherBetter: true, weight: 0.08, decimals: 1, scale: 'pct' as const },
-  'fg_K%': { label: 'K%', higherBetter: false, weight: 0.07, decimals: 1, scale: 'pct' as const },
-  'fg_Contact%': { label: 'Contact%', higherBetter: true, weight: 0.04, decimals: 1, scale: 'pct' as const },
-  sc_EV_ev50: { label: 'EV50', higherBetter: true, weight: 0.04, decimals: 1, scale: 'mph' as const },
-  fg_Def: { label: 'DEF', higherBetter: true, weight: 0.03, decimals: 1, scale: 'runs' as const },
-  fg_BsR: { label: 'BsR', higherBetter: true, weight: 0.02, decimals: 1, scale: 'runs' as const },
-  fg_maxEV: { label: 'maxEV', higherBetter: true, weight: 0.05, decimals: 1, scale: 'mph' as const },
-  'fg_HardHit%': { label: 'HardHit%', higherBetter: true, weight: 0.03, decimals: 1, scale: 'pct' as const },
+  // Outcome stats
+  'fg_RBI': { label: 'RBI', higherBetter: true, weight: 0.1, decimals: 0, scale: 'raw' as const },
+  'fg_HR': { label: 'HR', higherBetter: true, weight: 0.1, decimals: 0, scale: 'raw' as const },
+  'fg_OPS': { label: 'OPS', higherBetter: true, weight: 0.1, decimals: 3, scale: 'decimal' as const },
+  'fg_wRC+': { label: 'wRC+', higherBetter: true, weight: 0.1, decimals: 0, scale: 'raw' as const },
+  'fg_BB%': { label: 'BB%', higherBetter: true, weight: 0.1, decimals: 1, scale: 'pct' as const },
+  'fg_K%': { label: 'K%', higherBetter: false, weight: 0.1, decimals: 1, scale: 'pct' as const },
+  'fg_PA': { label: 'PA', higherBetter: true, weight: 0.1, decimals: 0, scale: 'raw' as const },
+  'fg_WAR': { label: 'WAR', higherBetter: true, weight: 0.1, decimals: 1, scale: 'raw' as const },
+  // Expected stats
+  'fg_xwOBA': { label: 'xwOBA', higherBetter: true, weight: 0.1, decimals: 3, scale: 'decimal' as const },
+  'fg_xSLG': { label: 'xSLG', higherBetter: true, weight: 0.1, decimals: 3, scale: 'decimal' as const },
+  // Batted stats
+  'sc_EV_brl_pa': { label: 'Barrels/PA', higherBetter: true, weight: 0.1, decimals: 1, scale: 'pct' as const },
+  'sc_EV_ev50': { label: 'avgEV', higherBetter: true, weight: 0.1, decimals: 1, scale: 'mph' as const },
+  // Defensive/Base running
+  'fg_Def': { label: 'Def', higherBetter: true, weight: 0.1, decimals: 1, scale: 'runs' as const },
+  'fg_BsR': { label: 'BsR', higherBetter: true, weight: 0.1, decimals: 1, scale: 'runs' as const },
 };
 
-// Position-specific weight presets
+// Position-specific weight presets (total: 5.0 per position)
 const POSITION_WEIGHTS: Record<string, Record<string, number>> = {
-  'C': {
-    'fg_xwOBA': 0.28, 'fg_PA': 0.14, 'sc_EV_brl_pa': 0.085, 'fg_xSLG': 0.075,
-    'fg_BB%': 0.09, 'fg_K%': 0.07, 'fg_Contact%': 0.05, 'sc_EV_ev50': 0.04,
-    'fg_Def': 0.10, 'fg_BsR': 0.015, 'fg_maxEV': 0.03, 'fg_HardHit%': 0.025
-  },
-  'SS': {
-    'fg_xwOBA': 0.28, 'fg_PA': 0.14, 'sc_EV_brl_pa': 0.09, 'fg_xSLG': 0.08,
-    'fg_BB%': 0.09, 'fg_K%': 0.065, 'fg_Contact%': 0.05, 'sc_EV_ev50': 0.035,
-    'fg_Def': 0.08, 'fg_BsR': 0.03, 'fg_maxEV': 0.04, 'fg_HardHit%': 0.02
-  },
-  'CF': {
-    'fg_xwOBA': 0.28, 'fg_PA': 0.14, 'sc_EV_brl_pa': 0.09, 'fg_xSLG': 0.075,
-    'fg_BB%': 0.09, 'fg_K%': 0.07, 'fg_Contact%': 0.05, 'sc_EV_ev50': 0.035,
-    'fg_Def': 0.08, 'fg_BsR': 0.04, 'fg_maxEV': 0.035, 'fg_HardHit%': 0.015
-  },
-  '2B': {
-    'fg_xwOBA': 0.28, 'fg_PA': 0.14, 'sc_EV_brl_pa': 0.10, 'fg_xSLG': 0.085,
-    'fg_BB%': 0.09, 'fg_K%': 0.07, 'fg_Contact%': 0.05, 'sc_EV_ev50': 0.04,
-    'fg_Def': 0.05, 'fg_BsR': 0.03, 'fg_maxEV': 0.04, 'fg_HardHit%': 0.025
-  },
-  '3B': {
-    'fg_xwOBA': 0.28, 'fg_PA': 0.14, 'sc_EV_brl_pa': 0.10, 'fg_xSLG': 0.10,
-    'fg_BB%': 0.09, 'fg_K%': 0.07, 'fg_Contact%': 0.05, 'sc_EV_ev50': 0.04,
-    'fg_Def': 0.04, 'fg_BsR': 0.02, 'fg_maxEV': 0.05, 'fg_HardHit%': 0.02
-  },
-  'LF': {
-    'fg_xwOBA': 0.28, 'fg_PA': 0.14, 'sc_EV_brl_pa': 0.10, 'fg_xSLG': 0.11,
-    'fg_BB%': 0.09, 'fg_K%': 0.07, 'fg_Contact%': 0.04, 'sc_EV_ev50': 0.04,
-    'fg_Def': 0.03, 'fg_BsR': 0.01, 'fg_maxEV': 0.06, 'fg_HardHit%': 0.03
-  },
-  'RF': {
-    'fg_xwOBA': 0.28, 'fg_PA': 0.14, 'sc_EV_brl_pa': 0.10, 'fg_xSLG': 0.11,
-    'fg_BB%': 0.09, 'fg_K%': 0.07, 'fg_Contact%': 0.04, 'sc_EV_ev50': 0.04,
-    'fg_Def': 0.03, 'fg_BsR': 0.01, 'fg_maxEV': 0.06, 'fg_HardHit%': 0.03
-  },
   '1B': {
-    'fg_xwOBA': 0.28, 'fg_PA': 0.14, 'sc_EV_brl_pa': 0.10, 'fg_xSLG': 0.105,
-    'fg_BB%': 0.09, 'fg_K%': 0.07, 'fg_Contact%': 0.05, 'sc_EV_ev50': 0.04,
-    'fg_Def': 0.02, 'fg_BsR': 0.02, 'fg_maxEV': 0.055, 'fg_HardHit%': 0.03
+    'fg_RBI': 0.50, 'fg_HR': 0.65, 'fg_OPS': 0.30, 'fg_wRC+': 0.70, 'fg_BB%': 0.20, 'fg_K%': 0.20, 'fg_PA': 0.30, 'fg_WAR': 0.60,
+    'fg_xwOBA': 0.50, 'fg_xSLG': 0.30,
+    'sc_EV_brl_pa': 0.30, 'sc_EV_ev50': 0.20,
+    'fg_Def': 0.10, 'fg_BsR': 0.15,
   },
   'DH': {
-    'fg_xwOBA': 0.28, 'fg_PA': 0.14, 'sc_EV_brl_pa': 0.105, 'fg_xSLG': 0.115,
-    'fg_BB%': 0.09, 'fg_K%': 0.07, 'fg_Contact%': 0.05, 'sc_EV_ev50': 0.04,
-    'fg_Def': 0.00, 'fg_BsR': 0.02, 'fg_maxEV': 0.06, 'fg_HardHit%': 0.03
+    'fg_RBI': 0.50, 'fg_HR': 0.60, 'fg_OPS': 0.35, 'fg_wRC+': 0.60, 'fg_BB%': 0.25, 'fg_K%': 0.25, 'fg_PA': 0.35, 'fg_WAR': 0.60,
+    'fg_xwOBA': 0.50, 'fg_xSLG': 0.35,
+    'sc_EV_brl_pa': 0.35, 'sc_EV_ev50': 0.25,
+    'fg_Def': 0.00, 'fg_BsR': 0.05,
+  },
+  'SS': {
+    'fg_RBI': 0.20, 'fg_HR': 0.20, 'fg_OPS': 0.30, 'fg_wRC+': 0.50, 'fg_BB%': 0.30, 'fg_K%': 0.30, 'fg_PA': 0.50, 'fg_WAR': 0.60,
+    'fg_xwOBA': 0.45, 'fg_xSLG': 0.20,
+    'sc_EV_brl_pa': 0.20, 'sc_EV_ev50': 0.15,
+    'fg_Def': 1.00, 'fg_BsR': 0.10,
+  },
+  '2B': {
+    'fg_RBI': 0.20, 'fg_HR': 0.20, 'fg_OPS': 0.30, 'fg_wRC+': 0.50, 'fg_BB%': 0.30, 'fg_K%': 0.30, 'fg_PA': 0.50, 'fg_WAR': 0.60,
+    'fg_xwOBA': 0.35, 'fg_xSLG': 0.20,
+    'sc_EV_brl_pa': 0.20, 'sc_EV_ev50': 0.15,
+    'fg_Def': 0.70, 'fg_BsR': 0.50,
+  },
+  '3B': {
+    'fg_RBI': 0.40, 'fg_HR': 0.55, 'fg_OPS': 0.30, 'fg_wRC+': 0.45, 'fg_BB%': 0.20, 'fg_K%': 0.20, 'fg_PA': 0.30, 'fg_WAR': 0.60,
+    'fg_xwOBA': 0.40, 'fg_xSLG': 0.45,
+    'sc_EV_brl_pa': 0.30, 'sc_EV_ev50': 0.20,
+    'fg_Def': 0.55, 'fg_BsR': 0.10,
+  },
+  'CF': {
+    'fg_RBI': 0.20, 'fg_HR': 0.20, 'fg_OPS': 0.30, 'fg_wRC+': 0.50, 'fg_BB%': 0.30, 'fg_K%': 0.30, 'fg_PA': 0.40, 'fg_WAR': 0.60,
+    'fg_xwOBA': 0.40, 'fg_xSLG': 0.20,
+    'sc_EV_brl_pa': 0.20, 'sc_EV_ev50': 0.15,
+    'fg_Def': 0.70, 'fg_BsR': 0.55,
+  },
+  'OF': {
+    'fg_RBI': 0.20, 'fg_HR': 0.20, 'fg_OPS': 0.30, 'fg_wRC+': 0.50, 'fg_BB%': 0.30, 'fg_K%': 0.30, 'fg_PA': 0.40, 'fg_WAR': 0.60,
+    'fg_xwOBA': 0.40, 'fg_xSLG': 0.20,
+    'sc_EV_brl_pa': 0.20, 'sc_EV_ev50': 0.15,
+    'fg_Def': 0.70, 'fg_BsR': 0.55,
+  },
+  'LF': {
+    'fg_RBI': 0.40, 'fg_HR': 0.45, 'fg_OPS': 0.30, 'fg_wRC+': 0.50, 'fg_BB%': 0.30, 'fg_K%': 0.30, 'fg_PA': 0.40, 'fg_WAR': 0.45,
+    'fg_xwOBA': 0.40, 'fg_xSLG': 0.30,
+    'sc_EV_brl_pa': 0.25, 'sc_EV_ev50': 0.20,
+    'fg_Def': 0.50, 'fg_BsR': 0.25,
+  },
+  'RF': {
+    'fg_RBI': 0.40, 'fg_HR': 0.45, 'fg_OPS': 0.30, 'fg_wRC+': 0.50, 'fg_BB%': 0.30, 'fg_K%': 0.30, 'fg_PA': 0.40, 'fg_WAR': 0.45,
+    'fg_xwOBA': 0.40, 'fg_xSLG': 0.30,
+    'sc_EV_brl_pa': 0.25, 'sc_EV_ev50': 0.20,
+    'fg_Def': 0.50, 'fg_BsR': 0.25,
+  },
+  'C': {
+    'fg_RBI': 0.25, 'fg_HR': 0.25, 'fg_OPS': 0.35, 'fg_wRC+': 0.50, 'fg_BB%': 0.35, 'fg_K%': 0.35, 'fg_PA': 0.60, 'fg_WAR': 0.60,
+    'fg_xwOBA': 0.35, 'fg_xSLG': 0.30,
+    'sc_EV_brl_pa': 0.25, 'sc_EV_ev50': 0.20,
+    'fg_Def': 0.60, 'fg_BsR': 0.05,
   },
 };
+
+// Position code to abbreviation mapping
+const POSITION_CODE_MAP: Record<number, string> = {
+  1: 'P',
+  2: 'C',
+  3: '1B',
+  4: '2B',
+  5: '3B',
+  6: 'SS',
+  7: 'OF',
+  8: 'OF',
+  9: 'OF',
+  10: 'DH',
+};
+
+/**
+ * Load primary position from Positions.csv for 2025 season
+ */
+async function loadPrimaryPosition(playerId: string): Promise<string | null> {
+  const [positionsRows] = await fetchMultipleCsvs(['/Positions.csv']);
+  const positionCounts = new Map<string, number>();
+  
+  // Process rows for 2025 season only
+  for (const row of positionsRows) {
+    const name = getString(row, ['player_name']);
+    const season = getField(row, ['season'], 0);
+    const positionCode = getField(row, ['position_code'], 0);
+    
+    if (!name || season !== 2025 || !positionCode || positionCode === 0) continue;
+    
+    const normId = normalizePlayerName(name);
+    if (normId !== playerId) continue;
+    
+    const positionAbbr = POSITION_CODE_MAP[positionCode];
+    if (positionAbbr) {
+      positionCounts.set(positionAbbr, (positionCounts.get(positionAbbr) || 0) + 1);
+    }
+  }
+  
+  // Determine primary position (most frequently played)
+  let maxCount = 0;
+  let primaryPos = null;
+  for (const [pos, count] of positionCounts.entries()) {
+    if (count > maxCount) {
+      maxCount = count;
+      primaryPos = pos;
+    }
+  }
+  
+  return primaryPos;
+}
 
 // Helper function to get weights for a specific position
 function getWeightsForPosition(position: string): Record<string, number> {
@@ -135,14 +211,41 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
   const [selectedComps, setSelectedComps] = useState<Set<string>>(
     new Set(comps.map((c) => c.id))
   );
-  const [selectedPosition, setSelectedPosition] = useState<string>(player.position || '1B');
+  
+  // Get primary position from player's stored position (normalize to primary)
+  const normalizePosition = (pos: string): string => {
+    if (!pos) return '1B';
+    const normalized = pos.trim().toUpperCase();
+    // Extract primary position (first before slash/comma)
+    const primary = normalized.split(/[\/,]/)[0].trim();
+    return primary || '1B';
+  };
+  
+  const initialPlayerPosition = normalizePosition(player.position || '1B');
+  const [selectedPosition, setSelectedPosition] = useState<string>(initialPlayerPosition);
   const [customWeights, setCustomWeights] = useState<Record<string, number>>(
-    getWeightsForPosition(player.position)
+    getWeightsForPosition(initialPlayerPosition)
   );
   const [adjustAAV, setAdjustAAV] = useState(true);
   const [adjustYears, setAdjustYears] = useState(true);
   const [inflationPercent, setInflationPercent] = useState(4);
   const [weightsOpen, setWeightsOpen] = useState(false);
+
+  // Load primary position from Positions.csv and update if different
+  useEffect(() => {
+    loadPrimaryPosition(player.id)
+      .then((primaryPos) => {
+        if (primaryPos) {
+          // Map OF to OF (already handled), or keep specific OF positions
+          const positionToUse = primaryPos;
+          setSelectedPosition(positionToUse);
+          setCustomWeights(getWeightsForPosition(positionToUse));
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load primary position:', err);
+      });
+  }, [player.id]);
 
   // Update weights when position changes
   const handlePositionChange = (position: string) => {
@@ -192,37 +295,36 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
 
     // Calculate cohort average stats (using pre-contract stats for comps)
     const cohortStats = Object.keys(STAT_CONFIG).reduce((acc, configKey) => {
-      const statKey = STAT_KEY_MAP[configKey] as keyof PlayerStats;
-      if (statKey === 'HRperPA') {
+      const statKey = STAT_KEY_MAP[configKey];
+      if (statKey === 'HR') {
+        // HR is extracted from HRperPA (which stores HR count)
         const avgHr = activeComps.reduce((sum, c) => {
           const s = c.threeYearContractStats || c.threeYearStats;
-          // HRperPA is stored as the actual HR count in the database
-          // Use it directly instead of converting from percentage
-          const hr = Math.round(s.HRperPA as number);
+          const hr = Math.round((s.HRperPA as number) || 0);
           return sum + hr;
         }, 0) / activeComps.length;
-        (acc as any)[statKey] = avgHr;
+        (acc as any)[statKey] = isNaN(avgHr) ? 0 : avgHr;
       } else {
         (acc as any)[statKey] = activeComps.reduce((sum, c) => {
           const s = c.threeYearContractStats || c.threeYearStats;
-          return sum + (s[statKey] as number);
+          return sum + ((s as any)[statKey] as number || 0);
         }, 0) / activeComps.length;
       }
       return acc;
-    }, {} as any) as PlayerStats;
+    }, {} as any) as PlayerStats & { HR?: number; OPS?: number };
 
     // Calculate Pete's performance relative to cohort for each stat
     const statComparisons = Object.entries(STAT_CONFIG).map(([configKey, config]) => {
-      const statKey = STAT_KEY_MAP[configKey] as keyof PlayerStats;
+      const statKey = STAT_KEY_MAP[configKey];
       let peteValue: number;
       let cohortValue: number;
       
-      if (statKey === 'HRperPA') {
+      if (statKey === 'HR') {
         peteValue = Math.round(PETE_STATS.HRperPA as number);
-        cohortValue = cohortStats[statKey] as number;
+        cohortValue = (cohortStats as any)[statKey] as number;
       } else {
-        peteValue = (PETE_STATS[statKey] as number);
-        cohortValue = cohortStats[statKey] as number;
+        peteValue = ((PETE_STATS as any)[statKey] as number) || 0;
+        cohortValue = ((cohortStats as any)[statKey] as number) || 0;
       }
       
       const delta = peteValue - cohortValue;
@@ -306,6 +408,18 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
     const aavMultiplier = adjustAAV ? Math.max(0.80, Math.min(1.30, rawMultiplier)) : 1.0;
     const fairAAV = baselineAAV * aavMultiplier;
 
+    // Scale individual stat impacts to account for multiplier clamping
+    // This ensures the sum of impacts matches the actual clamped difference
+    const rawImpactSum = statImpacts.reduce((sum, impact) => sum + impact.aavImpact, 0);
+    const actualDifference = fairAAV - baselineAAV;
+    const impactScale = rawImpactSum !== 0 ? actualDifference / rawImpactSum : 1;
+    
+    // Scale each impact proportionally to preserve relative contributions
+    const scaledStatImpacts = statImpacts.map(impact => ({
+      ...impact,
+      aavImpact: impact.aavImpact * impactScale,
+    }));
+
     // Years adjustment - cleaner formula based on age and performance
     // Formula: Baseline × age_multiplier + performance_adjustment
     
@@ -316,28 +430,33 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
     // Younger than cohort signing age => tempered benefit (reduced)
     const olderDelta = Math.max(0, ageDelta);
     const youngerDelta = Math.max(0, -ageDelta);
-    const penaltyComponent = (0.08 * olderDelta) + (0.020 * olderDelta * olderDelta);
-    const benefitComponent = (0.02 * youngerDelta) - (0.008 * youngerDelta * youngerDelta);
+    // Reduced penalties: 0.08 → 0.05, quadratic 0.020 → 0.010
+    const penaltyComponent = (0.05 * olderDelta) + (0.010 * olderDelta * olderDelta);
+    // Increased benefits for younger players: 0.02 → 0.03, reduce diminishing returns
+    const benefitComponent = (0.03 * youngerDelta) - (0.005 * youngerDelta * youngerDelta);
     const rawAgeMultiplier = 1 - penaltyComponent + benefitComponent;
-    const ageMultiplier = Math.max(0.4, Math.min(1.35, rawAgeMultiplier));
+    // Raise minimum from 0.4 to 0.6, raise max from 1.35 to 1.5
+    const ageMultiplier = Math.max(0.6, Math.min(1.5, rawAgeMultiplier));
     
-    // Absolute age penalty: reduce years for players 30+ (stronger)
-    const absoluteAgePenalty = PETE_STATS.age >= 30 
-      ? Math.min(3.0, (PETE_STATS.age - 29) * 0.45)
+    // Absolute age penalty: reduce years for players 31+ (stronger)
+    // Reduce penalty from 0.45 to 0.25, lower cap from 3.0 to 2.0, start at 31 instead of 30
+    const absoluteAgePenalty = PETE_STATS.age >= 31 
+      ? Math.min(2.0, (PETE_STATS.age - 30) * 0.25)
       : 0;
     
     // Performance adjustment: elite players get slightly longer deals (damped)
-    const performanceAdjustmentRaw = (aavMultiplier - 1) * 1.2;
-    const performanceAdjustment = Math.max(-1, Math.min(1, performanceAdjustmentRaw));
+    // Increase multiplier from 1.2 to 1.8, expand cap from ±1 to ±1.5
+    const performanceAdjustmentRaw = (aavMultiplier - 1) * 1.8;
+    const performanceAdjustment = Math.max(-1.5, Math.min(1.5, performanceAdjustmentRaw));
     
     const totalYearsAdjustment = adjustYears 
       ? ((baselineYears * ageMultiplier) - baselineYears) - absoluteAgePenalty + performanceAdjustment
       : 0;
     
-    // Soft cap: do not exceed baseline by more than +1.0 year
+    // Soft cap: do not exceed baseline by more than +2.0 years (was +1.0)
     const proposedYears = baselineYears + totalYearsAdjustment;
-    const cappedYears = Math.min(baselineYears + 1.0, proposedYears);
-    const fairYears = Math.max(3, Math.round(cappedYears * 2) / 2); // Min 3 years, round to 0.5
+    const cappedYears = Math.min(baselineYears + 2.0, proposedYears);
+    const fairYears = Math.max(1, Math.round(cappedYears * 2) / 2); // Min 1 year, round to 0.5
 
     return {
       baselineAAV,
@@ -355,13 +474,21 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
       cappedYears,
       cohortSigningAge,
       statComparisons,
-      statImpacts,
+      statImpacts: scaledStatImpacts,
       rawBaselineAAV,
       inflationAdjustedById,
       presentYear,
       cohortAvgSignedYear,
     };
   }, [selectedComps, customWeights, adjustAAV, adjustYears, inflationPercent]);
+
+  // Save calculated fairAAV and fairYears to localStorage for use in TeamFit
+  useEffect(() => {
+    if (typeof window !== 'undefined' && calculations.fairAAV > 0) {
+      localStorage.setItem('estimated_fairAAV', calculations.fairAAV.toString());
+      localStorage.setItem('estimated_fairYears', calculations.fairYears.toString());
+    }
+  }, [calculations.fairAAV, calculations.fairYears]);
 
   const barChartData = [
     {
@@ -373,6 +500,24 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
       value: calculations.fairAAV,
     },
   ];
+
+  // Helper to get stat value, handling special cases like HR
+  const getStatValue = (configKey: string, stats: PlayerStats | (PlayerStats & { HR?: number }), comp?: Player): number => {
+    const statKey = STAT_KEY_MAP[configKey];
+    
+    if (statKey === 'HR') {
+      // Check if HR is already stored directly (like in cohortStats)
+      if ((stats as any)['HR'] !== undefined && !isNaN((stats as any)['HR'])) {
+        return (stats as any)['HR'] as number;
+      }
+      // Otherwise extract HR from HRperPA (which stores HR count)
+      const hrFromHRperPA = Math.round((stats.HRperPA as number) || 0);
+      return isNaN(hrFromHRperPA) ? 0 : hrFromHRperPA;
+    } else {
+      const value = ((stats as any)[statKey] as number) || 0;
+      return isNaN(value) ? 0 : value;
+    }
+  };
 
   const formatStatValue = (stat: keyof typeof STAT_CONFIG, value: number) => {
     const config = STAT_CONFIG[stat];
@@ -415,16 +560,16 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
               Back
             </SBButton>
             <SBButton onClick={onContinue} icon={<ArrowRight size={18} />} iconPosition="right">
-              Build Contract
+              Team Fit
             </SBButton>
           </div>
         </div>
       </div>
 
       <div className="max-w-[1200px] mx-auto px-6 py-8">
-        <div className="flex gap-6">
+        <div className="flex gap-6 justify-center">
           {/* Main Content */}
-          <div className="flex-1 space-y-6">
+          <div className="flex-1 max-w-[900px] space-y-6">
             {/* Main Visual: AAV Calculation Flow */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -432,18 +577,18 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
               transition={{ delay: 0.2 }}
               className="bg-[#17181B] border border-[rgba(255,255,255,0.14)] rounded-[14px] p-8 grain-overlay"
             >
-              <div className="mb-8">
+              <div className="mb-8 text-center">
                 <h3 className="text-[#ECEDEF] mb-1">AAV Calculation</h3>
               </div>
 
-              <div className="flex items-center justify-between gap-6">
+              <div className="flex items-center justify-center gap-6">
                 {/* Cohort Baseline */}
-                <div className="flex-1 bg-[#0B0B0C] border border-[rgba(255,255,255,0.08)] rounded-xl p-6">
+                <div className="flex-1 bg-[#0B0B0C] border border-[rgba(255,255,255,0.08)] rounded-xl p-6 text-center">
                   <div className="text-xs text-[#A3A8B0] mb-3 uppercase tracking-wider">Cohort Average AAV</div>
                   <div className="text-5xl text-[#A8B4BD] mb-2">
                     ${calculations.baselineAAV.toFixed(1)}M
                   </div>
-                  <div className="text-xs text-[#A3A8B0] ml-[2px]">Inflation Adjusted</div>
+                  <div className="text-xs text-[#A3A8B0]">Inflation Adjusted</div>
                 </div>
 
                 {/* Multiplier Arrow */}
@@ -462,14 +607,14 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
                 </div>
 
                 {/* Estimated Value */}
-                <div className="flex-1 bg-gradient-to-br from-[#004B73]/30 to-[#004B73]/10 border border-[#004B73]/50 rounded-xl p-6">
+                <div className="flex-1 bg-gradient-to-br from-[#004B73]/30 to-[#004B73]/10 border border-[#004B73]/50 rounded-xl p-6 text-center">
                   <div className="text-xs text-[#A8B4BD] mb-3 uppercase tracking-wider">
                     Estimated Fair AAV
                   </div>
                   <div className="text-5xl text-[#ECEDEF] mb-2">
                     ${calculations.fairAAV.toFixed(1)}M
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center gap-2">
                     {calculations.fairAAV > calculations.baselineAAV ? (
                       <>
                         <TrendingUp size={14} className="text-green-500" />
@@ -498,19 +643,7 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
 
               {/* Statistical Basis Summary */}
               <div className="mt-6 pt-6 border-t border-[rgba(255,255,255,0.08)]">
-                <div className="grid grid-cols-4 gap-4">
-                  <div className="text-center">
-                    <div className="text-xs text-[#A3A8B0] mb-1">Stats Above Average</div>
-                    <div className="text-xl text-green-500">
-                      {calculations.statImpacts.filter(s => s.pctDiff > 2).length}
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-xs text-[#A3A8B0] mb-1">Stats Below Average</div>
-                    <div className="text-xl text-red-500">
-                      {calculations.statImpacts.filter(s => s.pctDiff < -2).length}
-                    </div>
-                  </div>
+                <div className="grid grid-cols-2 gap-4">
                   <div className="text-center">
                     <div className="text-xs text-[#A3A8B0] mb-1">Total AAV Impact</div>
                     <div className={`text-xl ${
@@ -543,22 +676,23 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
               className="bg-[#17181B] border border-[rgba(255,255,255,0.14)] rounded-[14px] p-6 grain-overlay"
             >
               <h3 className="text-[#ECEDEF] mb-4">Statistical Comparison & AAV Impact</h3>
-              <div className="w-full">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-[rgba(255,255,255,0.1)] hover:bg-transparent">
-                      <TableHead className="text-[#A8B4BD] sticky left-0 bg-[#17181B] z-10">Stat</TableHead>
-                      {COMPS.filter(c => selectedComps.has(c.id)).map((comp) => (
-                        <TableHead key={comp.id} className="text-[#A8B4BD] text-center">
-                          {comp.name}
-                        </TableHead>
-                      ))}
-                      <TableHead className="text-[#004B73] text-center">Cohort Avg</TableHead>
-                      <TableHead className="text-[#004B73] text-center">{player.name.split(' ').slice(-1)[0]}</TableHead>
-                      <TableHead className="text-[#A8B4BD] text-center">Diff %</TableHead>
-                      <TableHead className="text-[#A8B4BD] text-center">AAV Impact</TableHead>
-                    </TableRow>
-                  </TableHeader>
+              <div className="w-full overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                <div className="inline-block min-w-full">
+                  <Table className="table-fixed w-full" style={{ tableLayout: 'fixed' }}>
+                    <TableHeader>
+                      <TableRow className="border-[rgba(255,255,255,0.1)] hover:bg-transparent">
+                        <TableHead className="text-[#A8B4BD] sticky left-0 bg-[#17181B] z-10 w-[60px] px-1.5 py-1.5 text-[10px]">Stat</TableHead>
+                        {COMPS.filter(c => selectedComps.has(c.id)).map((comp) => (
+                          <TableHead key={comp.id} className="text-[#A8B4BD] text-center w-[55px] px-1.5 py-1.5 text-[10px]">
+                            <div className="truncate">{comp.name.split(' ').slice(-1)[0]}</div>
+                          </TableHead>
+                        ))}
+                        <TableHead className="text-[#004B73] text-center w-[55px] px-1.5 py-1.5 text-[10px]">Cohort Avg</TableHead>
+                        <TableHead className="text-[#004B73] text-center w-[55px] px-1.5 py-1.5 text-[10px]">{player.name.split(' ').slice(-1)[0]}</TableHead>
+                        <TableHead className="text-[#A8B4BD] text-center w-[50px] px-1.5 py-1.5 text-[10px]">Diff %</TableHead>
+                        <TableHead className="text-[#A8B4BD] text-center w-[55px] px-1.5 py-1.5 text-[10px]">AAV Impact</TableHead>
+                      </TableRow>
+                    </TableHeader>
                   <TableBody>
                     {Object.entries(STAT_CONFIG).map(([configKey, config]) => {
                       const statKey = STAT_KEY_MAP[configKey] as keyof PlayerStats;
@@ -566,24 +700,25 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
                       
                       return (
                         <TableRow key={configKey} className="border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.02)]">
-                          <TableCell className="text-[#ECEDEF] sticky left-0 bg-[#17181B] z-10">
+                          <TableCell className="text-[#ECEDEF] sticky left-0 bg-[#17181B] z-10 px-1.5 py-1.5 text-[10px]">
                             {config.label}
                           </TableCell>
                           {COMPS.filter(c => selectedComps.has(c.id)).map((comp) => {
                             const compStats = comp.threeYearContractStats || comp.threeYearStats;
+                            const value = getStatValue(configKey, compStats, comp);
                             return (
-                              <TableCell key={comp.id} className="text-[#A3A8B0] text-center">
-                                {formatStatValue(configKey as keyof typeof STAT_CONFIG, compStats[statKey] as number)}
+                              <TableCell key={comp.id} className="text-[#A3A8B0] text-center px-1.5 py-1.5 text-[10px]">
+                                {formatStatValue(configKey as keyof typeof STAT_CONFIG, value)}
                               </TableCell>
                             );
                           })}
-                          <TableCell className="text-[#004B73] text-center">
-                            {formatStatValue(configKey as keyof typeof STAT_CONFIG, calculations.cohortStats[statKey] as number || 0)}
+                          <TableCell className="text-[#004B73] text-center px-1.5 py-1.5 text-[10px]">
+                            {formatStatValue(configKey as keyof typeof STAT_CONFIG, getStatValue(configKey, calculations.cohortStats as PlayerStats))}
                           </TableCell>
-                          <TableCell className="text-[#ECEDEF] text-center">
-                            {formatStatValue(configKey as keyof typeof STAT_CONFIG, PETE_STATS[statKey] as number)}
+                          <TableCell className="text-[#ECEDEF] text-center px-1.5 py-1.5 text-[10px]">
+                            {formatStatValue(configKey as keyof typeof STAT_CONFIG, getStatValue(configKey, PETE_STATS))}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center px-1.5 py-1.5 text-[10px]">
                             <span className={`${
                               impact && impact.pctDiff > 2
                                 ? 'text-green-500'
@@ -594,7 +729,7 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
                               {impact ? (impact.pctDiff > 0 ? '+' : '') + impact.pctDiff.toFixed(1) : '0.0'}%
                             </span>
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center px-1.5 py-1.5 text-[10px]">
                             <span className={`${
                               impact && impact.aavImpact > 0.1
                                 ? 'text-green-500'
@@ -608,32 +743,64 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
                         </TableRow>
                       );
                     })}
+                    
+                    {/* Total AAV Impact Row */}
+                    {(() => {
+                      const totalImpact = calculations.statImpacts.reduce((sum, impact) => sum + impact.aavImpact, 0);
+                      return (
+                        <TableRow className="border-t-2 border-[rgba(255,255,255,0.2)] hover:bg-[rgba(255,255,255,0.02)] bg-[rgba(255,255,255,0.02)]">
+                          <TableCell className="text-[#ECEDEF] font-semibold sticky left-0 bg-[#17181B] z-10 px-1.5 py-1.5 text-[10px]">
+                            Impact
+                          </TableCell>
+                          {COMPS.filter(c => selectedComps.has(c.id)).map((comp) => (
+                            <TableCell key={comp.id} className="text-center px-1.5 py-1.5 text-[10px]">
+                              —
+                            </TableCell>
+                          ))}
+                          <TableCell className="text-center px-1.5 py-1.5 text-[10px]">—</TableCell>
+                          <TableCell className="text-center px-1.5 py-1.5 text-[10px]">—</TableCell>
+                          <TableCell className="text-center px-1.5 py-1.5 text-[10px]">—</TableCell>
+                          <TableCell className="text-center px-1.5 py-1.5 text-[10px]">
+                            <span className={`font-semibold ${
+                              totalImpact > 0.1
+                                ? 'text-green-500'
+                                : totalImpact < -0.1
+                                ? 'text-red-500'
+                                : 'text-[#A3A8B0]'
+                            }`}>
+                              {(totalImpact > 0 ? '+' : '') + totalImpact.toFixed(2) + 'M'}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })()}
+                    
                     {/* Contract context rows moved to bottom */}
                     <TableRow className="border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.02)]">
-                      <TableCell className="text-[#ECEDEF] sticky left-0 bg-[#17181B] z-10">Year Signed</TableCell>
+                      <TableCell className="text-[#ECEDEF] sticky left-0 bg-[#17181B] z-10 px-1.5 py-1.5 text-[10px]">Year Signed</TableCell>
                       {COMPS.filter(c => selectedComps.has(c.id)).map((comp) => (
-                        <TableCell key={comp.id} className="text-[#A3A8B0] text-center">
+                        <TableCell key={comp.id} className="text-[#A3A8B0] text-center px-1.5 py-1.5 text-[10px]">
                           {(comp as any).signedYear || '—'}
                         </TableCell>
                       ))}
-                      <TableCell className="text-[#004B73] text-center">
+                      <TableCell className="text-[#004B73] text-center px-1.5 py-1.5 text-[10px]">
                         {Number.isFinite(calculations.cohortAvgSignedYear) ? Math.round(calculations.cohortAvgSignedYear) : '—'}
                       </TableCell>
-                      <TableCell className="text-[#ECEDEF] text-center">
+                      <TableCell className="text-[#ECEDEF] text-center px-1.5 py-1.5 text-[10px]">
                         2026
                       </TableCell>
-                      <TableCell className="text-center text-[#A3A8B0]">—</TableCell>
-                      <TableCell className="text-center text-[#A3A8B0]">—</TableCell>
+                      <TableCell className="text-center text-[#A3A8B0] px-1.5 py-1.5 text-[10px]">—</TableCell>
+                      <TableCell className="text-center text-[#A3A8B0] px-1.5 py-1.5 text-[10px]">—</TableCell>
                     </TableRow>
 
                     <TableRow className="border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.02)]">
-                      <TableCell className="text-[#ECEDEF] sticky left-0 bg-[#17181B] z-10">AAV</TableCell>
+                      <TableCell className="text-[#ECEDEF] sticky left-0 bg-[#17181B] z-10 px-1.5 py-1.5 text-[10px]">AAV</TableCell>
                       {COMPS.filter(c => selectedComps.has(c.id)).map((comp) => (
-                        <TableCell key={comp.id} className="text-[#A3A8B0] text-center">
+                        <TableCell key={comp.id} className="text-[#A3A8B0] text-center px-1.5 py-1.5 text-[10px]">
                           {comp.AAV ? `$${comp.AAV.toFixed(1)}M` : '—'}
                         </TableCell>
                       ))}
-                      <TableCell className="text-[#004B73] text-center">
+                      <TableCell className="text-[#004B73] text-center px-1.5 py-1.5 text-[10px]">
                         {(() => {
                           const filteredComps = COMPS.filter(c => selectedComps.has(c.id) && c.AAV);
                           return filteredComps.length > 0 
@@ -641,33 +808,34 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
                             : '—';
                         })()}
                       </TableCell>
-                      <TableCell className="text-[#ECEDEF] text-center">
+                      <TableCell className="text-[#ECEDEF] text-center px-1.5 py-1.5 text-[10px]">
                         —
                       </TableCell>
-                      <TableCell className="text-center text-[#A3A8B0]">—</TableCell>
-                      <TableCell className="text-center text-[#A3A8B0]">—</TableCell>
+                      <TableCell className="text-center text-[#A3A8B0] px-1.5 py-1.5 text-[10px]">—</TableCell>
+                      <TableCell className="text-center text-[#A3A8B0] px-1.5 py-1.5 text-[10px]">—</TableCell>
                     </TableRow>
 
                     <TableRow className="border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.02)]">
-                      <TableCell className="text-[#ECEDEF] sticky left-0 bg-[#17181B] z-10">AAV (Inflation)</TableCell>
+                      <TableCell className="text-[#ECEDEF] sticky left-0 bg-[#17181B] z-10 px-1.5 py-1.5 text-[10px]">Inflation Adj</TableCell>
                       {COMPS.filter(c => selectedComps.has(c.id)).map((comp) => (
-                        <TableCell key={comp.id} className="text-[#A3A8B0] text-center">
+                        <TableCell key={comp.id} className="text-[#A3A8B0] text-center px-1.5 py-1.5 text-[10px]">
                           {comp.AAV 
                             ? `$${calculations.inflationAdjustedById?.[comp.id]?.toFixed(1) || comp.AAV.toFixed(1)}M`
                             : '—'}
                         </TableCell>
                       ))}
-                      <TableCell className="text-[#004B73] text-center">
+                      <TableCell className="text-[#004B73] text-center px-1.5 py-1.5 text-[10px]">
                         ${calculations.baselineAAV.toFixed(1)}M
                       </TableCell>
-                      <TableCell className="text-[#ECEDEF] text-center">
+                      <TableCell className="text-[#ECEDEF] text-center px-1.5 py-1.5 text-[10px]">
                         —
                       </TableCell>
-                      <TableCell className="text-center text-[#A3A8B0]">—</TableCell>
-                      <TableCell className="text-center text-[#A3A8B0]">—</TableCell>
+                      <TableCell className="text-center text-[#A3A8B0] px-1.5 py-1.5 text-[10px]">—</TableCell>
+                      <TableCell className="text-center text-[#A3A8B0] px-1.5 py-1.5 text-[10px]">—</TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
+                </div>
               </div>
               <div className="mt-4 pt-4 border-t border-[rgba(255,255,255,0.1)]">
                 <p className="text-[#A3A8B0] text-xs leading-relaxed">
@@ -809,7 +977,7 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-[#17181B] border-[rgba(255,255,255,0.14)]">
-                        {['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'].map((pos) => (
+                        {['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'OF', 'DH'].map((pos) => (
                           <SelectItem
                             key={pos}
                             value={pos}
@@ -851,8 +1019,8 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
                               setCustomWeights((prev) => ({ ...prev, [key]: value[0] }));
                             }}
                             min={0}
-                            max={0.5}
-                            step={0.01}
+                            max={1}
+                            step={0.05}
                             className="w-full"
                           />
                         </div>
@@ -946,7 +1114,7 @@ export function EstimatedValue({ player, comps, onContinue, onBack }: EstimatedV
           iconPosition="right"
           className="w-full mt-6"
         >
-          Build Contract
+          Team Fit
         </SBButton>
       </div>
     </div>

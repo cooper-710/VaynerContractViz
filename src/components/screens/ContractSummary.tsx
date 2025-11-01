@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { BarChart3, Home, ArrowLeft } from 'lucide-react';
+import { BarChart3, Home, ArrowLeft, Activity } from 'lucide-react';
 import { useContract } from '../narrative/ContractContext';
 import { InteractiveChart } from '../narrative/InteractiveChart';
 import { StackedBarChart } from '../narrative/StackedBarChart';
@@ -8,14 +8,19 @@ import { SBButton } from '../boras/SBButton';
 import { SBKpi } from '../boras/SBKpi';
 import { usePayrollData } from '../../hooks/usePayrollData';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import type { Player } from '../../data/playerDatabase';
+import { cn } from '../ui/utils';
 
 interface ContractSummaryProps {
   onExploreData: () => void;
   onStartOver: () => void;
   onBack: () => void;
+  onNavigateTo?: (screen: string, player: Player, comps: Player[]) => void;
+  player: Player | null;
+  comps: Player[];
 }
 
-export function ContractSummary({ onExploreData, onStartOver, onBack }: ContractSummaryProps) {
+export function ContractSummary({ onExploreData, onStartOver, onBack, onNavigateTo, player, comps }: ContractSummaryProps) {
   const { terms, totalValue,            
           guaranteedValue, potentialValue, cbtImpact, yearlyBreakdown, resetTerms } = useContract();
   const { selectedTeamId, setSelectedTeamId, selectedTeamData, availableTeams, loading: payrollLoading } = usePayrollData();
@@ -225,7 +230,7 @@ export function ContractSummary({ onExploreData, onStartOver, onBack }: Contract
                   <SelectValue placeholder="Select Team" />
                 </SelectTrigger>
                 <SelectContent className="bg-[#121315] border-[rgba(255,255,255,0.14)]">
-                  {availableTeams.map((team) => (
+                  {[...availableTeams].sort((a, b) => a.name.localeCompare(b.name)).map((team) => (
                     <SelectItem key={team.id} value={team.id} className="text-[#ECEDEF]">
                       {team.name}
                     </SelectItem>
@@ -349,6 +354,16 @@ export function ContractSummary({ onExploreData, onStartOver, onBack }: Contract
 
         {/* Actions */}
         <div className="grid grid-cols-1 gap-4">
+          {onNavigateTo && player && (
+            <SBButton 
+              size="lg" 
+              variant="secondary"
+              onClick={() => onNavigateTo('mocap', player, comps)}
+              icon={<Activity />}
+            >
+              View Mocap
+            </SBButton>
+          )}
           <SBButton 
             size="lg" 
             variant="secondary"

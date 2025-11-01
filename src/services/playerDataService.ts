@@ -20,7 +20,7 @@ import type {
   ComparisonsResponse,
 } from '../types';
 import { loadPlayersFromCsv, type PlayerStats } from '../data/playerDatabase';
-import { fetchCsv, getField, getString } from '../data/csvLoader';
+import { fetchMultipleCsvs, mergeCsvRowsByName, getField, getString, normalizePlayerName } from '../data/csvLoader';
 import type { StatPeriod, Player } from '../data/playerDatabase';
 
 // ============================================================================
@@ -39,8 +39,14 @@ import type { StatPeriod, Player } from '../data/playerDatabase';
  * return response.json();
  */
 export async function getPlayerStats(playerId: string): Promise<PlayerProfile> {
-  // Load rows directly to collect all seasons for this player
-  const rows = await fetchCsv('/Full_Data.csv');
+  // Load rows from all three CSVs and merge them
+  const [fangraphsRows, spotracRows, statscastRows] = await fetchMultipleCsvs([
+    '/fangraphs.csv',
+    '/spotrac.csv',
+    '/statscast.csv',
+  ]);
+  const rows = mergeCsvRowsByName(fangraphsRows, spotracRows, statscastRows);
+  
   const players = await loadPlayersFromCsv();
   const matchInList = players.find(p => p.id === playerId || p.name.toLowerCase() === playerId.toLowerCase());
   if (!matchInList) throw new Error('Player not found');
@@ -49,29 +55,29 @@ export async function getPlayerStats(playerId: string): Promise<PlayerProfile> {
   const displayName = matchInList.name;
 
   const playerRows = rows.filter(r => {
-    const idNorm = getString(r, ['player_norm']).replace(/\s+/g, '-');
-    const disp = getString(r, ['player_display']).toLowerCase();
-    return idNorm === normId || disp === displayName.toLowerCase();
+    const name = getString(r, ['Name']);
+    const normalized = normalizePlayerName(name);
+    return normalized === normId || normalizePlayerName(displayName) === normalized;
   });
 
   // Map seasons
   const yearly = playerRows
     .map((r) => {
-      const year = String(getField(r, ['season'], 0));
+      const year = String(getField(r, ['Season', 'year'], 0));
       const war = getField(r, ['fg_WAR', 'fg_L-WAR'], 0);
       const wrcPlus = getField(r, ['fg_wRC+'], 0);
       const hr = getField(r, ['fg_HR'], 0);
-      const xwoba = getField(r, ['fg_xwOBA', 'sc_X_woba', 'sc_X_est_woba'], 0);
-      const xslg = getField(r, ['fg_xSLG', 'sc_X_slg', 'sc_X_est_slg'], 0);
+      const xwoba = getField(r, ['fg_xwOBA'], 0);
+      const xslg = getField(r, ['fg_xSLG'], 0);
       const avg = getField(r, ['fg_AVG'], 0);
       const rbi = getField(r, ['fg_RBI'], 0);
       const obp = getField(r, ['fg_OBP'], 0);
       const slg = getField(r, ['fg_SLG'], 0);
       const ops = obp && slg ? obp + slg : 0;
-      const exitVelo = getField(r, ['sc_EV_avg_hit_speed', 'fg_EV', 'fg_EV50', 'sc_EV_ev50'], 0);
-      const maxEV = getField(r, ['fg_maxEV', 'sc_maxEV', 'MaxEV', 'max_exit_velo', 'sc_EV_max'], 0);
+      const exitVelo = getField(r, ['fg_EV', 'exit_velocity_avg'], 0);
+      const maxEV = getField(r, ['fg_maxEV'], 0);
       const hardHitPct = getField(r, ['fg_HardHit%', 'fg_HardHit%+'], 0);
-      const barrelPct = getField(r, ['sc_EV_brl_percent'], 0);
+      const barrelPct = getField(r, ['fg_Barrel%', 'barrel_batted_rate'], 0);
       const wpa = getField(r, ['fg_WPA'], 0);
       const launchAngle = getField(r, ['fg_LA'], 0);
       return { year, war, wrcPlus, hr, xwoba, xslg, avg, rbi, ops, exitVelo, maxEV, hardHitPct, barrelPct, wpa, launchAngle };
@@ -227,31 +233,38 @@ function aggregateToPlayerStats(rows: any[]): PlayerStats {
 }
 
 async function getPlayerSeasonRowsFromCsv(player: Player): Promise<Array<any>> {
-  const rows = await fetchCsv('/Full_Data.csv');
+  // Load rows from all three CSVs and merge them
+  const [fangraphsRows, spotracRows, statscastRows] = await fetchMultipleCsvs([
+    '/fangraphs.csv',
+    '/spotrac.csv',
+    '/statscast.csv',
+  ]);
+  const rows = mergeCsvRowsByName(fangraphsRows, spotracRows, statscastRows);
   const normId = player.id;
   return rows
     .filter(r => {
-      const idNorm = getString(r, ['player_norm']).replace(/\s+/g, '-');
-      return idNorm === normId;
+      const name = getString(r, ['Name']);
+      const normalized = normalizePlayerName(name);
+      return normalized === normId;
     })
     .map((r) => ({
-      season: Number(getField(r, ['season'], 0)),
+      season: Number(getField(r, ['Season', 'year'], 0)),
       war: getField(r, ['fg_WAR', 'fg_L-WAR'], 0),
       wRCplus: getField(r, ['fg_wRC+'], 0),
-      xwOBA: getField(r, ['fg_xwOBA', 'sc_X_woba', 'sc_X_est_woba'], 0),
-      xSLG: getField(r, ['fg_xSLG', 'sc_X_slg', 'sc_X_est_slg'], 0),
+      xwOBA: getField(r, ['fg_xwOBA'], 0),
+      xSLG: getField(r, ['fg_xSLG'], 0),
       HR: getField(r, ['fg_HR'], 0),
-      PA: getField(r, ['fg_PA'], 0),
-      barrelPct: getField(r, ['sc_EV_brl_percent'], 0),
+      PA: getField(r, ['fg_PA', 'pa'], 0),
+      barrelPct: getField(r, ['fg_Barrel%', 'barrel_batted_rate'], 0),
       hardHitPct: getField(r, ['fg_HardHit%', 'fg_HardHit%+'], 0),
-      exitVelo: getField(r, ['sc_EV_avg_hit_speed', 'fg_EV', 'fg_EV50', 'sc_EV_ev50'], 0),
-      maxEV: getField(r, ['fg_maxEV', 'sc_maxEV', 'MaxEV', 'max_exit_velo', 'sc_EV_max'], 0),
-      bbPct: getField(r, ['fg_BB%'], 0),
-      kPct: getField(r, ['fg_K%'], 0),
+      exitVelo: getField(r, ['fg_EV', 'exit_velocity_avg'], 0),
+      maxEV: getField(r, ['fg_maxEV'], 0),
+      bbPct: getField(r, ['fg_BB%', 'bb_percent'], 0),
+      kPct: getField(r, ['fg_K%', 'k_percent'], 0),
       contactPct: getField(r, ['fg_Contact%'], 0),
-      age: getField(r, ['fg_Age'], 0),
-      fg_Def: getField(r, ['fg_Def', 'Def'], 0),
-      fg_BsR: getField(r, ['fg_BsR', 'BsR'], 0),
+      age: getField(r, ['fg_Age', 'player_age'], 0),
+      fg_Def: getField(r, ['fg_Def'], 0),
+      fg_BsR: getField(r, ['fg_BsR'], 0),
     }))
     .filter(r => r.season > 0)
     .sort((a, b) => a.season - b.season);

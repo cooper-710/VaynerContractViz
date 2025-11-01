@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SBButton } from '../boras/SBButton';
-import { BarChart2, Users, Calculator, DollarSign, TrendingUp, X, Search, Check } from 'lucide-react';
+import { BarChart2, Users, Calculator, DollarSign, TrendingUp, X, Search, Check, Activity, Target } from 'lucide-react';
 import { ALL_PLAYERS, loadPlayersFromCsv, getPlayersWithContracts, searchPlayers, type Player } from '../../data/playerDatabase';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../ui/command';
 import { Badge } from '../ui/badge';
 import { cn } from '../ui/utils';
 import borasLogo from '../../assets/Boras2.png';
 import sequenceLogo from '../../assets/Sequence.png';
+import { fetchMultipleCsvs } from '../../data/csvLoader';
+import { getString, getField, normalizePlayerName } from '../../data/csvLoader';
 
 interface NarrativeIntroProps {
   onBegin: (selectedPlayer: Player, selectedComps: Player[]) => void;
@@ -16,11 +18,74 @@ interface NarrativeIntroProps {
       | 'player-stats'
       | 'player-comparisons'
       | 'estimated-value'
+      | 'team-fit'
       | 'contract-architecture'
-      | 'contract-summary',
+      | 'contract-summary'
+      | 'mocap',
     selectedPlayer: Player,
     selectedComps: Player[]
   ) => void;
+}
+
+// Position code to abbreviation mapping
+const POSITION_CODE_MAP: Record<number, string> = {
+  1: 'P',
+  2: 'C',
+  3: '1B',
+  4: '2B',
+  5: '3B',
+  6: 'SS',
+  7: 'OF',
+  8: 'OF',
+  9: 'OF',
+  10: 'DH',
+};
+
+/**
+ * Load primary positions from Positions.csv for 2025 season
+ * Returns a map of playerId -> primary position abbreviation
+ */
+async function loadPrimaryPositions(): Promise<Map<string, string>> {
+  const [positionsRows] = await fetchMultipleCsvs(['/Positions.csv']);
+  const positionCountsByPlayer = new Map<string, Map<string, number>>();
+  
+  // Process rows for 2025 season only
+  for (const row of positionsRows) {
+    const name = getString(row, ['player_name']);
+    const season = getField(row, ['season'], 0);
+    const positionCode = getField(row, ['position_code'], 0);
+    
+    if (!name || season !== 2025 || !positionCode || positionCode === 0) continue;
+    
+    const normId = normalizePlayerName(name);
+    const positionAbbr = POSITION_CODE_MAP[positionCode];
+    
+    if (positionAbbr) {
+      if (!positionCountsByPlayer.has(normId)) {
+        positionCountsByPlayer.set(normId, new Map());
+      }
+      const counts = positionCountsByPlayer.get(normId)!;
+      counts.set(positionAbbr, (counts.get(positionAbbr) || 0) + 1);
+    }
+  }
+  
+  // Determine primary position (most frequently played)
+  const primaryPositions = new Map<string, string>();
+  for (const [playerId, positionCounts] of positionCountsByPlayer.entries()) {
+    let maxCount = 0;
+    let primaryPos = '';
+    for (const [pos, count] of positionCounts.entries()) {
+      if (count > maxCount) {
+        maxCount = count;
+        primaryPos = pos;
+      }
+    }
+    if (primaryPos) {
+      primaryPositions.set(playerId, primaryPos);
+    }
+  }
+  
+  return primaryPositions;
 }
 
 export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
@@ -33,6 +98,7 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
   const [players, setPlayers] = React.useState<Player[]>(ALL_PLAYERS);
   const [loadingPlayers, setLoadingPlayers] = React.useState<boolean>(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [playerPrimaryPositionsMap, setPlayerPrimaryPositionsMap] = React.useState<Map<string, string>>(new Map());
 
   React.useEffect(() => {
     let active = true;
@@ -51,6 +117,62 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
       active = false;
     };
   }, []);
+
+  // Load primary positions from Positions.csv
+  React.useEffect(() => {
+    loadPrimaryPositions()
+      .then((positions) => {
+        setPlayerPrimaryPositionsMap(positions);
+      })
+      .catch((err) => {
+        console.error('Failed to load primary positions:', err);
+      });
+  }, []);
+
+  // Pre-load Pete Alonso and comps when players are loaded
+  React.useEffect(() => {
+    if (players.length === 0 || loadingPlayers || selectedPlayer !== null || selectedComps.length > 0) return;
+    
+    // Find Pete Alonso
+    const peteAlonso = players.find(p => 
+      p.name.toLowerCase().includes('pete alonso') || 
+      p.name.toLowerCase().includes('alonso')
+    );
+    
+    // Find comps
+    const compNames = [
+      'Freddie Freeman',
+      'Matt Olson',
+      'Vladimir Guerrero',
+      'Rafael Devers',
+      'Yordan Alvarez'
+    ];
+    
+    const foundComps = compNames
+      .map(name => {
+        if (name === 'Vladimir Guerrero') {
+          // Special handling for Vladimir Guerrero Jr.
+          return players.find(p => 
+            p.name.toLowerCase().includes('vladimir') && 
+            p.name.toLowerCase().includes('guerrero')
+          );
+        }
+        return players.find(p => 
+          p.name.toLowerCase().includes(name.toLowerCase().split(' ')[0]) &&
+          p.name.toLowerCase().includes(name.toLowerCase().split(' ')[1])
+        );
+      })
+      .filter((player): player is Player => player !== undefined);
+    
+    // Set pre-loaded values
+    if (peteAlonso) {
+      setSelectedPlayer(peteAlonso);
+    }
+    
+    if (foundComps.length > 0) {
+      setSelectedComps(foundComps);
+    }
+  }, [players, loadingPlayers, selectedPlayer, selectedComps]);
 
   const handlePlayerSelect = (player: Player) => {
     setSelectedPlayer(player);
@@ -76,11 +198,13 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
   };
 
   const canBegin = selectedPlayer !== null && selectedComps.length >= 1;
+  const canViewMocap = selectedPlayer !== null;
 
   const handleCardClick = (screen:
     | 'player-stats'
     | 'player-comparisons'
     | 'estimated-value'
+    | 'team-fit'
     | 'contract-architecture'
     | 'contract-summary') => {
     if (!canBegin || !selectedPlayer) return;
@@ -91,6 +215,7 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
     { label: 'Player Stats', key: 'player', icon: BarChart2, screen: 'player-stats' },
     { label: 'Comparables', key: 'comps', icon: Users, screen: 'player-comparisons' },
     { label: 'Estimated Value', key: 'value', icon: Calculator, screen: 'estimated-value' },
+    { label: 'Team Fit', key: 'team-fit', icon: Target, screen: 'team-fit' },
     { label: 'Contract Structure', key: 'structure', icon: DollarSign, screen: 'contract-architecture' },
     { label: 'Summary', key: 'summary', icon: TrendingUp, screen: 'contract-summary' },
   ];
@@ -216,9 +341,6 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
                 <h2 className="text-2xl font-semibold text-[#ECEDEF] mb-2 tracking-tight">
                   Select Player to Valuate
                 </h2>
-                <p className="text-sm text-[#A3A8B0]">
-                  Choose the player for contract valuation
-                </p>
               </div>
 
               {selectedPlayer ? (
@@ -238,7 +360,7 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
                         {selectedPlayer.name}
                       </h3>
                       <p className="text-sm text-[#A3A8B0]">
-                        {selectedPlayer.position} • {selectedPlayer.team}
+                        {playerPrimaryPositionsMap.get(selectedPlayer.id) || selectedPlayer.position} • {selectedPlayer.team}
                       </p>
                     </div>
                     <motion.button
@@ -304,7 +426,7 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
                                 <div>
                                   <div className="text-[#ECEDEF] font-medium">{player.name}</div>
                                   <div className="text-sm text-[#A3A8B0] mt-0.5">
-                                    {player.position} • {player.team}
+                                    {playerPrimaryPositionsMap.get(player.id) || player.position} • {player.team}
                                   </div>
                                 </div>
                                 {player.AAV && (
@@ -330,6 +452,50 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
                 </div>
               )}
             </div>
+          </motion.div>
+
+          {/* View Mocap Button */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35, duration: 0.6 }}
+            className="mb-12"
+          >
+            <motion.button
+              onClick={() => canViewMocap && onNavigateTo('mocap', selectedPlayer!, selectedComps)}
+              disabled={!canViewMocap}
+              whileHover={canViewMocap ? { scale: 1.01 } : {}}
+              whileTap={canViewMocap ? { scale: 0.99 } : {}}
+              className="group relative w-full"
+            >
+              <div 
+                className={cn(
+                  'backdrop-blur-xl rounded-2xl p-6 shadow-xl flex items-center justify-center gap-3 transition-all duration-300 w-full',
+                  canViewMocap 
+                    ? 'bg-[rgba(23,24,27,0.6)] border border-[rgba(0,75,115,0.3)] hover:border-[rgba(0,75,115,0.5)] hover:bg-[rgba(23,24,27,0.7)] cursor-pointer'
+                    : 'bg-[rgba(23,24,27,0.4)] border border-[rgba(255,255,255,0.08)] opacity-50 cursor-not-allowed'
+                )}
+                style={{
+                  boxShadow: canViewMocap
+                    ? '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 40px rgba(0, 75, 115, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+                    : '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.03)',
+                }}
+              >
+                <Activity 
+                  size={20} 
+                  className={cn(
+                    'transition-colors',
+                    canViewMocap ? 'text-[#004B73] group-hover:text-[#0066a0]' : 'text-[#A3A8B0]'
+                  )}
+                />
+                <span className={cn(
+                  'text-lg font-semibold tracking-tight',
+                  canViewMocap ? 'text-[#ECEDEF]' : 'text-[#A3A8B0]'
+                )}>
+                  View Mocap
+                </span>
+              </div>
+            </motion.button>
           </motion.div>
 
           {/* Comparables Section - Prominent Glass Card */}
@@ -386,7 +552,7 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
                               {comp.name}
                             </span>
                             <span className="text-xs text-[#A8B4BD] opacity-80">
-                              {comp.position}
+                              {playerPrimaryPositionsMap.get(comp.id) || comp.position}
                             </span>
                             {comp.AAV && (
                               <span className="text-xs text-[#A8B4BD] font-medium">
@@ -461,8 +627,8 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
                               <div>
                                 <div className="text-[#ECEDEF] font-medium">{player.name}</div>
                                 <div className="text-sm text-[#A3A8B0] mt-0.5">
-                                  {player.position} • {player.team}
-                                  {selectedPlayer && player.position === selectedPlayer.position && (
+                                  {playerPrimaryPositionsMap.get(player.id) || player.position} • {player.team}
+                                  {selectedPlayer && (playerPrimaryPositionsMap.get(player.id) || player.position) === (playerPrimaryPositionsMap.get(selectedPlayer.id) || selectedPlayer.position) && (
                                     <span className="ml-2 text-[#004B73]">★ Same Position</span>
                                   )}
                                 </div>
@@ -498,16 +664,17 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
             className="mb-12"
           >
             {/* Clickable Icon Cards */}
-            <div className="grid grid-cols-5 gap-4">
+            <div className="grid grid-cols-6 gap-4">
               {steps.map((step, index) => {
                 const Icon = step.icon;
                 const isActive = index === currentStep;
                 const isCompleted = index < currentStep;
                 const isUpcoming = index > currentStep;
-                const isClickable = canBegin && index <= currentStep;
-                // Show glow on first THREE cards ONLY when both searches are filled
-                // - Player Stats (0), Comparables (1), Estimated Value (2)
-                const shouldGlow = (selectedPlayer && selectedComps.length >= 1) && index <= 2;
+                // Team Fit (index 3) should be clickable when Estimated Value (index 2) is clickable
+                const isClickable = canBegin && (index <= currentStep || (index === 3 && currentStep >= 2));
+                // Show glow on first FOUR cards ONLY when both searches are filled
+                // - Player Stats (0), Comparables (1), Estimated Value (2), Team Fit (3)
+                const shouldGlow = (selectedPlayer && selectedComps.length >= 1) && index <= 3;
                 
                 return (
                   <motion.div

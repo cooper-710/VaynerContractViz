@@ -578,7 +578,7 @@ export function ContractArchitecture({ onContinue, onBack }: ContractArchitectur
                     <SelectValue placeholder="Select Team" />
                   </SelectTrigger>
                   <SelectContent className="bg-[#121315] border-[rgba(255,255,255,0.14)]">
-                    {availableTeams.map((team) => (
+                    {[...availableTeams].sort((a, b) => a.name.localeCompare(b.name)).map((team) => (
                       <SelectItem key={team.id} value={team.id} className="text-[#ECEDEF]">
                         {team.name}
                       </SelectItem>

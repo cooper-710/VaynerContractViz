@@ -60,7 +60,7 @@ export function PlayerStats({ player, onContinue, onBack }: PlayerStatsProps) {
               </SBButton>
             )}
             <SBButton onClick={onContinue} icon={<ArrowRight size={18} />} iconPosition="right">
-              Compare to Market
+              Market Comparables
             </SBButton>
           </div>
         </div>
@@ -245,7 +245,7 @@ export function PlayerStats({ player, onContinue, onBack }: PlayerStatsProps) {
           iconPosition="right"
           className="w-full mt-6"
         >
-          Compare to Market
+          Market Comparables
         </SBButton>
       </div>
     </div>

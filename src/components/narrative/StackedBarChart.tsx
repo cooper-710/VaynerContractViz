@@ -38,7 +38,7 @@ export function StackedBarChart({
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data}>
+      <BarChart data={data} margin={{ top: 10, right: 10, left: 50, bottom: 20 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
         <XAxis 
           dataKey={xKey} 
@@ -48,6 +48,7 @@ export function StackedBarChart({
         <YAxis 
           stroke="#A3A8B0" 
           style={{ fontSize: '12px' }}
+          width={45}
           tickFormatter={(value) => `$${value}M`}
         />
         <Tooltip content={<CustomTooltip />} />

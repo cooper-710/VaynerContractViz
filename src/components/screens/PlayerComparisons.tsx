@@ -114,7 +114,7 @@ export function PlayerComparisons({ player, comps, onContinue, onBack }: PlayerC
               Back
             </SBButton>
             <SBButton onClick={onContinue} icon={<ArrowRight size={18} />} iconPosition="right">
-              Build Contract
+              Estimated Value
             </SBButton>
           </div>
         </div>
@@ -300,7 +300,9 @@ export function PlayerComparisons({ player, comps, onContinue, onBack }: PlayerC
                         isTargetPlayer ? 'bg-[#004B73]/10' : ''
                       }`}
                     >
-                      <td className="py-3 text-[#ECEDEF] font-medium sticky left-0 bg-[#17181B] z-10">
+                      <td className={`py-3 text-[#ECEDEF] font-medium sticky left-0 z-10 ${
+                        isTargetPlayer ? 'bg-[#004B73]/10' : 'bg-[#17181B]'
+                      }`}>
                         {p.name}
                         {isTargetPlayer && (
                           <span className="ml-2 text-xs text-[#004B73] bg-[#004B73]/20 px-2 py-0.5 rounded">
@@ -308,18 +310,18 @@ export function PlayerComparisons({ player, comps, onContinue, onBack }: PlayerC
                           </span>
                         )}
                       </td>
-                      <td className="text-center text-[#ECEDEF]">{p.position}</td>
-                      <td className="text-center text-[#ECEDEF]">{p.team}</td>
-                      <td className="text-right text-[#ECEDEF]">{stats.age}</td>
+                      <td className={`text-center text-[#ECEDEF] ${isTargetPlayer ? 'bg-[#004B73]/10' : ''}`}>{p.position}</td>
+                      <td className={`text-center text-[#ECEDEF] ${isTargetPlayer ? 'bg-[#004B73]/10' : ''}`}>{p.team}</td>
+                      <td className={`text-right text-[#ECEDEF] ${isTargetPlayer ? 'bg-[#004B73]/10' : ''}`}>{stats.age}</td>
                       {statKeys.map((stat) => (
-                        <td key={stat} className="text-right text-[#ECEDEF]">
+                        <td key={stat} className={`text-right text-[#ECEDEF] ${isTargetPlayer ? 'bg-[#004B73]/10' : ''}`}>
                           {formatStatValue(stat, stats[stat] as number)}
                         </td>
                       ))}
-                      <td className="text-right text-[#A8B4BD]">
+                      <td className={`text-right text-[#A8B4BD] ${isTargetPlayer ? 'bg-[#004B73]/10' : ''}`}>
                         {p.hasContract && p.AAV ? `$${p.AAV}M` : '—'}
                       </td>
-                      <td className="text-right text-[#ECEDEF]">
+                      <td className={`text-right text-[#ECEDEF] ${isTargetPlayer ? 'bg-[#004B73]/10' : ''}`}>
                         {p.hasContract && p.years ? p.years : '—'}
                       </td>
                     </tr>
@@ -381,7 +383,7 @@ export function PlayerComparisons({ player, comps, onContinue, onBack }: PlayerC
           iconPosition="right"
           className="w-full mt-6"
         >
-          Build Contract
+          Estimated Value
         </SBButton>
       </div>
     </div>
