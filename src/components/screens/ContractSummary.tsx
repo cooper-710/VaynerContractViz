@@ -356,14 +356,24 @@ export function ContractSummary({ onExploreData, onStartOver, onBack, onNavigate
         {/* Actions */}
         <div className="grid grid-cols-1 gap-4">
           {onNavigateTo && player && (
-            <SBButton 
-              size="lg" 
-              variant="secondary"
-              onClick={() => onNavigateTo('mocap', player, comps)}
-              icon={<Activity />}
-            >
-              View Mocap
-            </SBButton>
+            <div className="grid grid-cols-2 gap-4">
+              <SBButton 
+                size="lg" 
+                variant="secondary"
+                onClick={() => onNavigateTo('mocap', player, comps)}
+                icon={<Activity />}
+              >
+                View Mocap
+              </SBButton>
+              <SBButton 
+                size="lg" 
+                variant="secondary"
+                onClick={() => onNavigateTo('mocap-report', player!, comps)}
+                icon={<Activity />}
+              >
+                View Mocap Report
+              </SBButton>
+            </div>
           )}
           <SBButton 
             size="lg" 

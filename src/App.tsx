@@ -18,6 +18,7 @@ import { OfferSheet } from './components/screens/OfferSheet';
 import { ShareExport } from './components/screens/ShareExport';
 import { Audit } from './components/screens/Audit';
 import { Mocap } from './components/screens/Mocap';
+import { MocapReport } from './components/screens/MocapReport';
 import { cn } from './components/ui/utils';
 
 type Mode = 'narrative' | 'exploration';
@@ -30,6 +31,7 @@ type Screen =
   | 'contract-architecture'
   | 'contract-summary'
   | 'mocap'
+  | 'mocap-report'
   | 'overview' 
   | 'builder' 
   | 'valuation' 
@@ -253,6 +255,12 @@ function AppContent() {
       const backToScreen = previousScreen === 'contract-summary' ? 'contract-summary' : 'intro';
       const backLabel = previousScreen === 'contract-summary' ? 'Back to Summary' : 'Back to Intro';
       return <Mocap onBack={() => setCurrentScreen(backToScreen)} player={selectedPlayer} backLabel={backLabel} />;
+    }
+
+    if (currentScreen === 'mocap-report') {
+      const backToScreen = previousScreen === 'contract-summary' ? 'contract-summary' : 'intro';
+      const backLabel = previousScreen === 'contract-summary' ? 'Back to Summary' : 'Back to Intro';
+      return <MocapReport onBack={() => setCurrentScreen(backToScreen)} player={selectedPlayer} backLabel={backLabel} />;
     }
   }
 
