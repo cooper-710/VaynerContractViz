@@ -8,6 +8,7 @@ import { Badge } from '../ui/badge';
 import { cn } from '../ui/utils';
 import borasLogo from '../../assets/Boras2.png';
 import sequenceLogo from '../../assets/Sequence.png';
+import vaynerLogo from '../../assets/Vayner.png';
 import { fetchMultipleCsvs } from '../../data/csvLoader';
 import { getString, getField, normalizePlayerName } from '../../data/csvLoader';
 
@@ -130,34 +131,27 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
       });
   }, []);
 
-  // Pre-load Pete Alonso and comps when players are loaded
+  // Pre-load Harrison Bader and comps when players are loaded
   React.useEffect(() => {
     if (players.length === 0 || loadingPlayers || selectedPlayer !== null || selectedComps.length > 0) return;
     
-    // Find Pete Alonso
-    const peteAlonso = players.find(p => 
-      p.name.toLowerCase().includes('pete alonso') || 
-      p.name.toLowerCase().includes('alonso')
+    // Find Harrison Bader
+    const harrisonBader = players.find(p => 
+      p.name.toLowerCase().includes('harrison bader') || 
+      p.name.toLowerCase().includes('bader')
     );
     
     // Find comps
     const compNames = [
-      'Freddie Freeman',
-      'Matt Olson',
-      'Vladimir Guerrero',
-      'Rafael Devers',
-      'Yordan Alvarez'
+      'Jesse Winker',
+      'Christian Vazquez',
+      'Andrew Benintendi',
+      'Cedric Mullins',
+      'Max Kepler'
     ];
     
     const foundComps = compNames
       .map(name => {
-        if (name === 'Vladimir Guerrero') {
-          // Special handling for Vladimir Guerrero Jr.
-          return players.find(p => 
-            p.name.toLowerCase().includes('vladimir') && 
-            p.name.toLowerCase().includes('guerrero')
-          );
-        }
         return players.find(p => 
           p.name.toLowerCase().includes(name.toLowerCase().split(' ')[0]) &&
           p.name.toLowerCase().includes(name.toLowerCase().split(' ')[1])
@@ -166,8 +160,8 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
       .filter((player): player is Player => player !== undefined);
     
     // Set pre-loaded values
-    if (peteAlonso) {
-      setSelectedPlayer(peteAlonso);
+    if (harrisonBader) {
+      setSelectedPlayer(harrisonBader);
     }
     
     if (foundComps.length > 0) {
@@ -295,17 +289,11 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
           >
             <div className="flex items-center justify-center gap-4 mb-3">
               <img 
-                src={borasLogo} 
-                alt="Boras Corp Logo" 
+                src={vaynerLogo} 
+                alt="VaynerSports Logo" 
                 className="object-contain"
                 style={{ height: '8rem' }}
               />
-              <h1 className="font-semibold text-[#ECEDEF] tracking-tight" style={{
-                fontSize: '8rem',
-                textShadow: '0 0 30px rgba(0, 75, 115, 0.6), 0 0 60px rgba(0, 75, 115, 0.4), -1px -1px 0 rgba(0, 75, 115, 0.8), 1px -1px 0 rgba(0, 75, 115, 0.8), -1px 1px 0 rgba(0, 75, 115, 0.8), 1px 1px 0 rgba(0, 75, 115, 0.8)',
-              }}>
-                Boras Corp.
-              </h1>
             </div>
           </motion.div>
         </motion.header>
