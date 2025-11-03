@@ -10,6 +10,7 @@ import { usePayrollData } from '../../hooks/usePayrollData';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import type { Player } from '../../data/playerDatabase';
 import { cn } from '../ui/utils';
+import { hasMocapReport } from '../../utils/mocapUtils';
 
 interface ContractSummaryProps {
   onExploreData: () => void;
@@ -356,7 +357,10 @@ export function ContractSummary({ onExploreData, onStartOver, onBack, onNavigate
         {/* Actions */}
         <div className="grid grid-cols-1 gap-4">
           {onNavigateTo && player && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className={cn(
+              "grid gap-4",
+              hasMocapReport(player.name) ? "grid-cols-2" : "grid-cols-1"
+            )}>
               <SBButton 
                 size="lg" 
                 variant="secondary"
@@ -365,14 +369,16 @@ export function ContractSummary({ onExploreData, onStartOver, onBack, onNavigate
               >
                 View Mocap
               </SBButton>
-              <SBButton 
-                size="lg" 
-                variant="secondary"
-                onClick={() => onNavigateTo('mocap-report', player!, comps)}
-                icon={<Activity />}
-              >
-                View Mocap Report
-              </SBButton>
+              {hasMocapReport(player.name) && (
+                <SBButton 
+                  size="lg" 
+                  variant="secondary"
+                  onClick={() => onNavigateTo('mocap-report', player!, comps)}
+                  icon={<Activity />}
+                >
+                  View Mocap Report
+                </SBButton>
+              )}
             </div>
           )}
           <SBButton 

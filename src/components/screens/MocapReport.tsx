@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { SBButton } from '../boras/SBButton';
 import { ArrowLeft } from 'lucide-react';
 import type { Player } from '../../data/playerDatabase';
+import { getMocapPdfPath } from '../../utils/mocapUtils';
 
 interface MocapReportProps {
   onBack: () => void;
@@ -11,6 +12,8 @@ interface MocapReportProps {
 }
 
 export function MocapReport({ onBack, player, backLabel = 'Back to Intro' }: MocapReportProps) {
+  const pdfPath = player?.name ? getMocapPdfPath(player.name) : '/Pete_Alonso.pdf';
+  
   return (
     <div className="h-screen bg-[#0B0B0C] flex flex-col overflow-hidden">
       {/* Header Section */}
@@ -37,7 +40,7 @@ export function MocapReport({ onBack, player, backLabel = 'Back to Intro' }: Moc
           className="w-full h-full"
         >
           <iframe
-            src="/Pete_Alonso.pdf"
+            src={pdfPath}
             className="w-full h-full border-0"
             title="Motion Capture Report"
           />

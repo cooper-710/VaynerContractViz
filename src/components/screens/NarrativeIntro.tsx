@@ -11,6 +11,7 @@ import sequenceLogo from '../../assets/Sequence.png';
 import vaynerLogo from '../../assets/Vayner.png';
 import { fetchMultipleCsvs } from '../../data/csvLoader';
 import { getString, getField, normalizePlayerName } from '../../data/csvLoader';
+import { hasMocapReport } from '../../utils/mocapUtils';
 
 interface NarrativeIntroProps {
   onBegin: (selectedPlayer: Player, selectedComps: Player[]) => void;
@@ -194,6 +195,7 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
 
   const canBegin = selectedPlayer !== null && selectedComps.length >= 1;
   const canViewMocap = selectedPlayer !== null;
+  const hasMocapReportForPlayer = hasMocapReport(selectedPlayer?.name);
 
   const handleCardClick = (screen:
     | 'player-stats'
@@ -437,7 +439,10 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
             transition={{ delay: 0.35, duration: 0.6 }}
             className="mb-12"
           >
-            <div className="grid grid-cols-2 gap-4">
+            <div className={cn(
+              "grid gap-4",
+              hasMocapReportForPlayer ? "grid-cols-2" : "grid-cols-1"
+            )}>
               {/* Left: View Mocap Button */}
               <motion.button
                 onClick={() => canViewMocap && onNavigateTo('mocap', selectedPlayer!, selectedComps)}
@@ -475,42 +480,44 @@ export function NarrativeIntro({ onBegin, onNavigateTo }: NarrativeIntroProps) {
                 </div>
               </motion.button>
 
-              {/* Right: View Mocap Report Button */}
-              <motion.button
-                onClick={() => canViewMocap && onNavigateTo('mocap-report', selectedPlayer!, selectedComps)}
-                disabled={!canViewMocap}
-                whileHover={canViewMocap ? { scale: 1.01 } : {}}
-                whileTap={canViewMocap ? { scale: 0.99 } : {}}
-                className="group relative"
-              >
-                <div 
-                  className={cn(
-                    'backdrop-blur-xl rounded-2xl p-6 shadow-xl flex items-center justify-center gap-3 transition-all duration-300 w-full',
-                    canViewMocap 
-                      ? 'bg-[rgba(23,24,27,0.6)] border border-[rgba(0,75,115,0.3)] hover:border-[rgba(0,75,115,0.5)] hover:bg-[rgba(23,24,27,0.7)] cursor-pointer'
-                      : 'bg-[rgba(23,24,27,0.4)] border border-[rgba(255,255,255,0.08)] opacity-50 cursor-not-allowed'
-                  )}
-                  style={{
-                    boxShadow: canViewMocap
-                      ? '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 40px rgba(0, 75, 115, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
-                      : '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.03)',
-                  }}
+              {/* Right: View Mocap Report Button - Only show if PDF exists */}
+              {hasMocapReportForPlayer && (
+                <motion.button
+                  onClick={() => canViewMocap && onNavigateTo('mocap-report', selectedPlayer!, selectedComps)}
+                  disabled={!canViewMocap}
+                  whileHover={canViewMocap ? { scale: 1.01 } : {}}
+                  whileTap={canViewMocap ? { scale: 0.99 } : {}}
+                  className="group relative"
                 >
-                  <Activity 
-                    size={20} 
+                  <div 
                     className={cn(
-                      'transition-colors',
-                      canViewMocap ? 'text-[#004B73] group-hover:text-[#0066a0]' : 'text-[#A3A8B0]'
+                      'backdrop-blur-xl rounded-2xl p-6 shadow-xl flex items-center justify-center gap-3 transition-all duration-300 w-full',
+                      canViewMocap 
+                        ? 'bg-[rgba(23,24,27,0.6)] border border-[rgba(0,75,115,0.3)] hover:border-[rgba(0,75,115,0.5)] hover:bg-[rgba(23,24,27,0.7)] cursor-pointer'
+                        : 'bg-[rgba(23,24,27,0.4)] border border-[rgba(255,255,255,0.08)] opacity-50 cursor-not-allowed'
                     )}
-                  />
-                  <span className={cn(
-                    'text-lg font-semibold tracking-tight',
-                    canViewMocap ? 'text-[#ECEDEF]' : 'text-[#A3A8B0]'
-                  )}>
-                    View Mocap Report
-                  </span>
-                </div>
-              </motion.button>
+                    style={{
+                      boxShadow: canViewMocap
+                        ? '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 40px rgba(0, 75, 115, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+                        : '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.03)',
+                    }}
+                  >
+                    <Activity 
+                      size={20} 
+                      className={cn(
+                        'transition-colors',
+                        canViewMocap ? 'text-[#004B73] group-hover:text-[#0066a0]' : 'text-[#A3A8B0]'
+                      )}
+                    />
+                    <span className={cn(
+                      'text-lg font-semibold tracking-tight',
+                      canViewMocap ? 'text-[#ECEDEF]' : 'text-[#A3A8B0]'
+                    )}>
+                      View Mocap Report
+                    </span>
+                  </div>
+                </motion.button>
+              )}
             </div>
           </motion.div>
 
